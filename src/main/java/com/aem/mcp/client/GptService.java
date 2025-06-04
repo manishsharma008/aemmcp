@@ -1,4 +1,4 @@
-package com.example.mcp;
+package com.aem.mcp.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

@@ -1,4 +1,4 @@
-package com.example.mcp;
+package com.aem.mcp.client;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;

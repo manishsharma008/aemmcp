@@ -1,4 +1,4 @@
-package com.mcp.server.api;
+package com.aem.mcp.server;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.commons.io.IOUtils;

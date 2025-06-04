@@ -1,4 +1,4 @@
-package com.example.mcp;
+package com.aem.mcp.server;
 
 import org.springframework.stereotype.Service;
 

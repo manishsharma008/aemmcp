@@ -1,4 +1,4 @@
-package com.example.mcp;
+package com.aem.mcp.client;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;

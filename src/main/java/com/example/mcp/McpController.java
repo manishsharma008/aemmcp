@@ -20,6 +20,10 @@ public class McpController {
         String question = input.get("question");
         String jcrQuery = gptService.generateJcrQuery(question);
         String results = aemQueryService.runQuery(jcrQuery);
+        jcrQuery = jcrQuery.replaceAll("\"","'");
+        results = " {\n" +
+                "  \"query\": \" "+jcrQuery+"\",\n" +
+                "  \"data\":" +results + "}";
         return ResponseEntity.ok(results);
     }
 }

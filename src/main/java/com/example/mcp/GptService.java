@@ -12,6 +12,7 @@ import java.util.Base64;
 
 @Service
 public class GptService {
+
     private static final String OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions";
 
     public String generateJcrQuery(String userQuestion) {
@@ -20,7 +21,14 @@ public class GptService {
                     "{\n" +
                             "  \"model\": \"gpt-4\",\n" +
                             "  \"messages\": [\n" +
-                            "    {\"role\": \"system\", \"content\": \"You are an AEM JCR-SQL2 expert. Translate the user's question into a precise JCR-SQL2 query. Always use [cq:Page] as the main type with alias 's', and filter using s.[jcr:content/jcr:createdBy] or other jcr:content-level fields. Only return the SQL2 string, no explanation.\"},\n" +
+                            "    {\"role\": \"system\", \"content\": \"" +
+                            "You are an AEM JCR-SQL2 expert. Translate the user's question into a precise JCR-SQL2 query. " +
+                            "Use [cq:Page] or [cq:Component] as the main type with alias 's', and filter using s.[jcr:content/jcr:createdBy] or other jcr:content-level fields. " +
+                            "Additionally, use [rep:User] or [rep:Group] to find users in groups. " +
+                            "For requests involving 'give me page has child component <component-path>', " +
+                            "search using [nt:unstructured] in content/trp-ref where [sling:resourceType] matches the specified <component-path>. " +
+                            "Only return the SQL2 string, no explanation.\"" +
+                    "},\n" +
                             "    {\"role\": \"user\", \"content\": \"%s\"}\n" +
                             "  ]\n" +
                             "}\n",
@@ -29,7 +37,7 @@ public class GptService {
             HttpURLConnection conn = (HttpURLConnection) new URL(OPENAI_ENDPOINT).openConnection();
             conn.setRequestMethod("POST");
             conn.setDoOutput(true);
-            conn.setRequestProperty("Authorization", "Bearer " + "OPENAI_AK");
+            conn.setRequestProperty("Authorization", "Bearer " + "OPENAI_API_KEY");
             conn.setRequestProperty("Content-Type", "application/json");
 
             try (OutputStream os = conn.getOutputStream()) {

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI-Powered AEM Query Generator</title>
+    <style>
+        textarea {
+            width: 100%;
+            height: 100px;
+        }
+        #response {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            background-color: #f9f9f9;
+        }
+        #loading {
+            display: none;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+<h1>AI-Powered AEM Query Generator</h1>
+<p>Submit your request below to generate an AEM query using AI. This tool helps convert your natural language requests into actionable queries for Adobe Experience Manager.</p>
+<form id="questionForm">
+    <label for="question">Enter Your Request:</label>
+    <textarea id="question" name="question" required></textarea>
+    <button type="submit">Generate Query</button>
+</form>
+
+<div id="loading">Processing your request...</div>
+<div id="response"></div>
+
+<script>
+    document.getElementById('questionForm').addEventListener('submit', function(event) {
+        event.preventDefault(); // Prevent the form from submitting the traditional way
+
+        const question = document.getElementById('question').value;
+        const loadingIndicator = document.getElementById('loading');
+        const responseDiv = document.getElementById('response');
+
+        loadingIndicator.style.display = 'block';
+        responseDiv.innerText = '';
+
+        fetch('http://localhost:8080/mcp/query', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ question: question })
+        })
+            .then(response => {
+                loadingIndicator.style.display = 'none';
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Success:', data);
+                responseDiv.innerText = JSON.stringify(data, null, 2);
+            })
+            .catch((error) => {
+                console.error('Error:', error);
+                responseDiv.innerText = 'There was an error processing your request. Please try again later.';
+            });
+    });
+</script>
+</body>
+</html>

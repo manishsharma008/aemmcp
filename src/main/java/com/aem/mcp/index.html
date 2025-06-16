@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Submit Question</title>
+    <style>
+        textarea {
+            width: 100%;
+            height: 100px;
+        }
+        #response {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            background-color: #f9f9f9;
+        }
+    </style>
+</head>
+<body>
+<h1>Submit Your Question</h1>
+<form id="questionForm">
+    <label for="question">Question:</label>
+    <textarea id="question" name="question" required></textarea>
+    <button type="submit">Submit</button>
+</form>
+
+<div id="response"></div>
+
+<script>
+    document.getElementById('questionForm').addEventListener('submit', function(event) {
+        event.preventDefault(); // Prevent the form from submitting the traditional way
+
+        const question = document.getElementById('question').value;
+
+        fetch('http://localhost:8080/mcp/query', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ question: question })
+        })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Success:', data);
+                document.getElementById('response').innerText = JSON.stringify(data, null, 2);
+            })
+            .catch((error) => {
+                console.error('Error:', error);
+                document.getElementById('response').innerText = 'There was an error submitting your question.';
+            });
+    });
+</script>
+</body>
+</html>

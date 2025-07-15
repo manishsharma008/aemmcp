@@ -1,0 +1,1267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alpha Vantage Options Data Reader</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@1.4.0/dist/chartjs-plugin-annotation.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Light gray background */
+        }
+        pre {
+            white-space: pre-wrap; /* Ensures text wraps within the pre tag */
+            word-wrap: break-word; /* Breaks long words if necessary */
+        }
+        /* Custom scrollbar for tables */
+        .overflow-x-auto::-webkit-scrollbar {
+            height: 8px;
+            width: 8px;
+        }
+        .overflow-x-auto::-webkit-scrollbar-thumb {
+            background: #cbd5e1; /* Gray-300 */
+            border-radius: 4px;
+        }
+        .overflow-x-auto::-webkit-scrollbar-track {
+            background: #e2e8f0; /* Gray-200 */
+        }
+        .price-list-item {
+            display: inline-block;
+            margin-right: 1.5rem; /* Equivalent to Tailwind mr-6 */
+            padding: 0.5rem 0;
+        }
+        .tab-button.active {
+            @apply bg-indigo-600 text-white;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .table-section {
+            background-color: #fff; /* White background for individual tables */
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); /* Subtle shadow */
+            margin-bottom: 1.5rem; /* Space between call/put tables */
+        }
+        .table-section:last-child {
+            margin-bottom: 0;
+        }
+        .condor-leg-buy, .calendar-leg-buy, .pterodactyl-leg-buy {
+            background-color: #eef2ff; /* Indigo 50 */
+        }
+        .condor-leg-sell, .calendar-leg-sell, .pterodactyl-leg-sell {
+            background-color: #fefce8; /* Yellow 50 */
+        }
+        .summary-row {
+             background-color: #f9fafb; /* Gray 50 */
+             font-weight: 500;
+             cursor: pointer;
+        }
+        .summary-row.selected {
+            background-color: #e0e7ff; /* Indigo 200 */
+            --tw-ring-color: #6366f1; /* Indigo 500 */
+            box-shadow: 0 0 0 2px var(--tw-ring-color);
+        }
+        .details-container {
+            display: none; /* Initially hidden */
+        }
+        .details-container.visible {
+            display: block; /* Shown on summary row click */
+        }
+        /* Modal styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background: white;
+            padding: 2rem;
+            border-radius: 0.5rem;
+            width: 90%;
+            max-width: 800px; /* Increased width for chart */
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .accordion-panel {
+            display: none;
+        }
+        .accordion-panel.open {
+            display: block;
+        }
+    </style>
+</head>
+<body class="p-4 sm:p-6 lg:p-8">
+    <div class="max-w-8xl mx-auto bg-white rounded-lg shadow-xl p-6 md:p-8 lg:p-10">
+        <h1 class="text-3xl sm:text-4xl font-bold text-gray-800 mb-6 text-center">Alpha Vantage Options Data Reader</h1>
+
+        <div class="mb-6 space-y-4">
+            <p class="text-gray-700">Enter stock ticker symbols (comma-separated) to fetch their real-time options data from Alpha Vantage.</p>
+            <div class="flex flex-col sm:flex-row gap-4">
+                <input
+                    type="text"
+                    id="tickerInput"
+                    placeholder="e.g., IBM, AAPL, MSFT"
+                    class="flex-grow p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition duration-150 ease-in-out text-gray-800 shadow-sm"
+                    value="IBM, AAPL" <!-- Default value for easy testing -->
+                />
+                <button
+                    id="fetchDataButton"
+                    class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-md shadow-md transition duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                >
+                    Fetch Options Data
+                </button>
+            </div>
+            
+            <div id="statusMessage" class="text-center text-sm text-gray-600 mt-2"></div>
+        </div>
+
+        <!-- Current Stock Prices Display -->
+        <div class="bg-gray-100 p-4 rounded-lg shadow-inner mb-6">
+            <h2 class="text-xl font-semibold text-gray-800 mb-3">Current Stock Prices & RSI:</h2>
+            <div id="currentPricesContainer" class="space-y-2">
+                <!-- Prices will be injected here as an accordion -->
+                <p class="text-gray-500">No prices fetched yet.</p>
+            </div>
+        </div>
+
+        <!-- Tab Navigation -->
+        <div class="flex border-b border-gray-200 mb-4 bg-gray-50 rounded-t-lg overflow-x-auto">
+            <button class="tab-button py-3 px-6 text-sm font-medium text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 rounded-tl-lg active" data-tab="nearTerm">Near Term</button>
+            <button class="tab-button py-3 px-6 text-sm font-medium text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500" data-tab="midTerm">Mid Term</button>
+            <button class="tab-button py-3 px-6 text-sm font-medium text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500" data-tab="longTerm">Long Term Puts</button>
+            <button class="tab-button py-3 px-6 text-sm font-medium text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500" data-tab="ironCondor">Iron Condor</button>
+            <button class="tab-button py-3 px-6 text-sm font-medium text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500" data-tab="ironPterodactyl">Iron Pterodactyl</button>
+            <button class="tab-button py-3 px-6 text-sm font-medium text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 rounded-tr-lg" data-tab="calendarSpread">Calendar Spread</button>
+        </div>
+
+        <!-- Tab Content Containers -->
+        <div class="tab-content-container bg-gray-100 p-6 rounded-b-lg shadow-inner">
+            <!-- Near Term Options Tab Content -->
+            <div id="nearTerm" class="tab-content active">
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">Options Expiring &lt; 2 Weeks (Nearest Strike)</h3>
+                <div class="table-section">
+                    <h4 class="text-md font-semibold text-gray-700 mb-3">Call Options</h4>
+                    <div class="overflow-x-auto max-h-[35vh]">
+                        <table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50 sticky top-0"><tr><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ticker</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expiration</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Days Left</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Strike</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bid</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ask</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last %</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Volume</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider rounded-tr-lg">Open Interest</th></tr></thead><tbody id="nearTermCallsTableBody" class="bg-white divide-y divide-gray-200"></tbody></table>
+                    </div>
+                    <p id="noNearTermCallsMessage" class="text-center text-gray-500 mt-4 hidden">No near-term call options found.</p>
+                </div>
+                <div class="table-section">
+                    <h4 class="text-md font-semibold text-gray-700 mb-3">Put Options</h4>
+                    <div class="overflow-x-auto max-h-[35vh]">
+                        <table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50 sticky top-0"><tr><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ticker</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expiration</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Days Left</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Strike</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bid</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ask</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last %</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Volume</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider rounded-tr-lg">Open Interest</th></tr></thead><tbody id="nearTermPutsTableBody" class="bg-white divide-y divide-gray-200"></tbody></table>
+                    </div>
+                    <p id="noNearTermPutsMessage" class="text-center text-gray-500 mt-4 hidden">No near-term put options found.</p>
+                </div>
+            </div>
+
+            <!-- Mid Term Options Tab Content -->
+            <div id="midTerm" class="tab-content">
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">Options Expiring 4-5 Weeks (Nearest Strike)</h3>
+                <div class="table-section">
+                    <h4 class="text-md font-semibold text-gray-700 mb-3">Call Options</h4>
+                    <div class="overflow-x-auto max-h-[35vh]">
+                        <table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50 sticky top-0"><tr><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ticker</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expiration</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Days Left</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Strike</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bid</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ask</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last %</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Volume</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider rounded-tr-lg">Open Interest</th></tr></thead><tbody id="midTermCallsTableBody" class="bg-white divide-y divide-gray-200"></tbody></table>
+                    </div>
+                    <p id="noMidTermCallsMessage" class="text-center text-gray-500 mt-4 hidden">No mid-term call options found.</p>
+                </div>
+                <div class="table-section">
+                    <h4 class="text-md font-semibold text-gray-700 mb-3">Put Options</h4>
+                    <div class="overflow-x-auto max-h-[35vh]">
+                       <table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50 sticky top-0"><tr><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ticker</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expiration</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Days Left</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Strike</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bid</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ask</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last %</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Volume</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider rounded-tr-lg">Open Interest</th></tr></thead><tbody id="midTermPutsTableBody" class="bg-white divide-y divide-gray-200"></tbody></table>
+                    </div>
+                    <p id="noMidTermPutsMessage" class="text-center text-gray-500 mt-4 hidden">No mid-term put options found.</p>
+                </div>
+            </div>
+
+            <!-- Long Term Puts Tab Content -->
+            <div id="longTerm" class="tab-content">
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">Long Term Puts (Nearest Strike to 90% of Current Price)</h3>
+                 <div class="table-section">
+                    <h4 class="text-md font-semibold text-gray-700 mb-3">~6 Weeks Expiration</h4>
+                    <div class="overflow-x-auto max-h-[35vh]">
+                        <table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50 sticky top-0"><tr><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ticker</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expiration</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Days Left</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Strike</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bid</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ask</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last %</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Volume</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider rounded-tr-lg">Open Interest</th></tr></thead><tbody id="sixWeekPutsTableBody" class="bg-white divide-y divide-gray-200"></tbody></table>
+                    </div>
+                    <p id="noSixWeekPutsMessage" class="text-center text-gray-500 mt-4 hidden">No matching 6-week put options found.</p>
+                </div>
+                 <div class="table-section">
+                    <h4 class="text-md font-semibold text-gray-700 mb-3">~8 Weeks Expiration</h4>
+                    <div class="overflow-x-auto max-h-[35vh]">
+                        <table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50 sticky top-0"><tr><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ticker</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expiration</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Days Left</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Strike</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bid</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ask</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last %</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Volume</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider rounded-tr-lg">Open Interest</th></tr></thead><tbody id="eightWeekPutsTableBody" class="bg-white divide-y divide-gray-200"></tbody></table>
+                    </div>
+                    <p id="noEightWeekPutsMessage" class="text-center text-gray-500 mt-4 hidden">No matching 8-week put options found.</p>
+                </div>
+                <div class="table-section">
+                    <h4 class="text-md font-semibold text-gray-700 mb-3">~10 Weeks Expiration</h4>
+                    <div class="overflow-x-auto max-h-[35vh]">
+                        <table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50 sticky top-0"><tr><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ticker</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expiration</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Days Left</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Strike</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bid</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ask</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last %</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Volume</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider rounded-tr-lg">Open Interest</th></tr></thead><tbody id="tenWeekPutsTableBody" class="bg-white divide-y divide-gray-200"></tbody></table>
+                    </div>
+                    <p id="noTenWeekPutsMessage" class="text-center text-gray-500 mt-4 hidden">No matching 10-week put options found.</p>
+                </div>
+            </div>
+            
+            <!-- Iron Condor Tab Content -->
+            <div id="ironCondor" class="tab-content">
+                 <h3 class="text-lg font-semibold text-gray-800 mb-4">Iron Condor Strategy (Sell OTM)</h3>
+                 
+                 <div class="table-section">
+                    <h4 class="text-md font-semibold text-gray-700 mb-3">~4-5 Weeks Expiration</h4>
+                    <div id="midTermCondorContainer"></div>
+                    <p id="noMidTermCondorMessage" class="text-center text-gray-500 mt-4 hidden">No matching 4-5 week Iron Condor options found.</p>
+                    <div id="midTermCondorDetailsContainer" class="details-container mt-6"></div>
+                </div>
+
+                 <div class="table-section">
+                    <h4 class="text-md font-semibold text-gray-700 mb-3">~6 Weeks Expiration</h4>
+                    <div id="sixWeekCondorContainer"></div>
+                     <p id="noSixWeekCondorMessage" class="text-center text-gray-500 mt-4 hidden">No matching 6-week Iron Condor options found.</p>
+                    <div id="sixWeekCondorDetailsContainer" class="details-container mt-6"></div>
+                </div>
+
+                 <div class="table-section">
+                    <h4 class="text-md font-semibold text-gray-700 mb-3">~8 Weeks Expiration</h4>
+                    <div id="eightWeekCondorContainer"></div>
+                    <p id="noEightWeekCondorMessage" class="text-center text-gray-500 mt-4 hidden">No matching 8-week Iron Condor options found.</p>
+                    <div id="eightWeekCondorDetailsContainer" class="details-container mt-6"></div>
+                </div>
+
+                <div class="table-section">
+                    <h4 class="text-md font-semibold text-gray-700 mb-3">~10 Weeks Expiration</h4>
+                    <div id="tenWeekCondorContainer"></div>
+                    <p id="noTenWeekCondorMessage" class="text-center text-gray-500 mt-4 hidden">No matching 10-week Iron Condor options found.</p>
+                    <div id="tenWeekCondorDetailsContainer" class="details-container mt-6"></div>
+                </div>
+            </div>
+            
+            <!-- Iron Pterodactyl Tab Content -->
+            <div id="ironPterodactyl" class="tab-content">
+                 <h3 class="text-lg font-semibold text-gray-800 mb-4">Iron Pterodactyl Strategy (Sell ATM)</h3>
+                 
+                 <div class="table-section">
+                    <h4 class="text-md font-semibold text-gray-700 mb-3">~4-5 Weeks Expiration</h4>
+                    <div id="midTermPterodactylContainer"></div>
+                    <p id="noMidTermPterodactylMessage" class="text-center text-gray-500 mt-4 hidden">No matching 4-5 week Iron Pterodactyl options found.</p>
+                    <div id="midTermPterodactylDetailsContainer" class="details-container mt-6"></div>
+                </div>
+            </div>
+
+            <!-- Calendar Spread Tab Content -->
+            <div id="calendarSpread" class="tab-content">
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">Short Calendar Spread (Buy Near-Term, Sell Far-Term)</h3>
+                
+                <div class="table-section">
+                    <h4 class="text-md font-semibold text-gray-700 mb-3">Combined Calendar Spreads (Nearest to Current Price)</h4>
+                    <div class="mb-4">
+                        <h5 class="text-sm font-semibold text-gray-600 mb-2">Summary (Click a row to see details)</h5>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50"><tr><th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ticker</th><th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Strike</th><th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Call Cost (Debit)</th><th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Call Credit</th><th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Put Cost (Debit)</th><th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Put Credit</th><th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Net Call Spread</th><th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Net Put Spread</th><th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Overall Net</th></tr></thead><tbody id="calendarSummaryTableBody" class="bg-white divide-y divide-gray-200"></tbody></table>
+                        </div>
+                        <p id="noCalendarMessage" class="text-center text-gray-500 mt-4 hidden">No matching Calendar Spreads found.</p>
+                    </div>
+                    <div id="calendarDetailsContainer" class="details-container mt-6">
+                         <h5 class="text-sm font-semibold text-gray-600 mb-2">Details</h5>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50 sticky top-0"><tr><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Leg (Action)</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expiration</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Days Left</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bid</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ask</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last %</th><th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider rounded-tr-lg">Open Interest</th></tr></thead><tbody id="calendarDetailsTableBody" class="bg-white divide-y divide-gray-200"></tbody></table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+    
+    <!-- Calculation Modal -->
+    <div id="calculationModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-bold text-gray-800">Risk/Reward Calculation</h2>
+                <button id="closeModalButton" class="text-gray-500 hover:text-gray-800 text-2xl font-bold">&times;</button>
+            </div>
+            <div id="modalBody" class="space-y-4">
+                <!-- Content will be injected here by JavaScript -->
+            </div>
+             <div class="mt-6">
+                <canvas id="profitLossChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        // Your Alpha Vantage API key. Replace "demo" with your actual key for more robust usage.
+        const ALPHA_VANTAGE_API_KEY = "ZI5RB4MYZ1N1QLNU"; 
+        let profitLossChartInstance = null; // To hold the chart instance
+
+        /**
+         * Fetches real-time options data from Alpha Vantage.
+         * @param {string} ticker The stock ticker symbol (e.g., "IBM", "AAPL").
+         * @param {string} apiKey Your Alpha Vantage API key.
+         * @returns {Promise<Object|null>} A promise that resolves to the JSON data from Alpha Vantage, or null if an error occurs.
+         */
+        async function getAlphaVantageOptionChain(ticker, apiKey) {
+            console.log(`[${ticker}] Fetching option chain...`);
+            const url = `https://www.alphavantage.co/query?function=REALTIME_OPTIONS&symbol=${ticker}&apikey=${apiKey}`;
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    console.error(`[${ticker}] HTTP error fetching options: ${response.status}.`);
+                    return null;
+                }
+                const data = await response.json();
+                if (data["Error Message"] || (data["Information"] && data["Information"].toLowerCase().includes("rate limit"))) {
+                    console.error(`[${ticker}] Alpha Vantage API Error/Limit:`, (data["Error Message"] || data["Information"]));
+                    return null;
+                }
+                if (!data || !Array.isArray(data.data) || data.data.length === 0) {
+                    console.warn(`[${ticker}] No valid options data array found.`);
+                    return null;
+                }
+                return data;
+            } catch (error) {
+                console.error(`[${ticker}] Error fetching Alpha Vantage options data:`, error);
+                return null;
+            }
+        }
+
+        /**
+         * Fetches the current stock price using Alpha Vantage GLOBAL_QUOTE.
+         * @param {string} ticker The stock ticker symbol.
+         * @param {string} apiKey Your Alpha Vantage API key.
+         * @returns {Promise<number|null>} A promise that resolves to the current price, or null if an error occurs.
+         */
+        async function getAlphaVantageCurrentPrice(ticker, apiKey) {
+            console.log(`[${ticker}] Fetching current price...`);
+            const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${ticker}&apikey=${apiKey}`;
+            try {
+                const response = await fetch(url);
+                 if (!response.ok) {
+                    console.error(`[${ticker}] HTTP error fetching global quote: ${response.status}.`);
+                    return null;
+                }
+                const data = await response.json();
+                if (data && data["Global Quote"] && data["Global Quote"]["05. price"]) {
+                    const price = parseFloat(data["Global Quote"]["05. price"]);
+                    if (!isNaN(price)) return price;
+                }
+                console.warn(`[${ticker}] Could not find valid current price from GLOBAL_QUOTE.`);
+                return null;
+            } catch (error) {
+                console.error(`[${ticker}] Error fetching current price:`, error);
+                return null;
+            }
+        }
+        
+        /**
+         * Fetches the latest 14-day RSI value for a stock.
+         * @param {string} ticker The stock ticker symbol.
+         * @param {string} apiKey Your Alpha Vantage API key.
+         * @returns {Promise<number|null>} A promise that resolves to the latest RSI value, or null if an error occurs.
+         */
+        async function getAlphaVantageRSI(ticker, apiKey) {
+            console.log(`[${ticker}] Fetching RSI...`);
+            const url = `https://www.alphavantage.co/query?function=RSI&symbol=${ticker}&interval=daily&time_period=14&series_type=close&apikey=${apiKey}`;
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    console.error(`[${ticker}] HTTP error fetching RSI: ${response.status}.`);
+                    return null;
+                }
+                const data = await response.json();
+                const rsiData = data['Technical Analysis: RSI'];
+                if (rsiData) {
+                    const latestDate = Object.keys(rsiData)[0];
+                    if (latestDate && rsiData[latestDate] && rsiData[latestDate]['RSI']) {
+                        const rsiValue = parseFloat(rsiData[latestDate]['RSI']);
+                        if (!isNaN(rsiValue)) return rsiValue;
+                    }
+                }
+                console.warn(`[${ticker}] Could not find valid RSI value.`);
+                return null;
+            } catch (error) {
+                console.error(`[${ticker}] Error fetching RSI data:`, error);
+                return null;
+            }
+        }
+
+        /**
+         * Calculates the number of days left until expiration.
+         * @param {string} expirationDateString Date string in 'YYYY-MM-DD' format.
+         * @returns {number|string} Number of days left, or 'N/A' if invalid date.
+         */
+        function calculateDaysLeft(expirationDateString) {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const expirationDate = new Date(expirationDateString);
+            expirationDate.setHours(0, 0, 0, 0);
+            if (isNaN(expirationDate.getTime())) return 'N/A';
+            const diffTime = expirationDate.getTime() - today.getTime();
+            return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        }
+
+        /**
+         * Parses the percentage value from the string for sorting.
+         * @param {string} percentageString The string from Last % column.
+         * @returns {number} The numeric percentage, or Infinity if N/A.
+         */
+        function parsePercentageForSorting(percentageString) {
+            if (typeof percentageString !== 'string' || percentageString === 'N/A') return Infinity;
+            const match = percentageString.match(/([\d.-]+)%/);
+            return match ? parseFloat(match[1]) : Infinity;
+        }
+
+        /**
+         * Returns a descriptive note based on the risk/reward ratio.
+         * @param {number} r The risk/reward ratio.
+         * @returns {string} A descriptive note.
+         */
+        function getNote(r) {
+            if (!isFinite(r)) return "Zero risk / mispriced input";
+            if (r >= 8) return "Extremely high reward for low risk";
+            if (r >= 3) return "Very strong setup";
+            if (r >= 2) return "High reward-to-risk ratio";
+            if (r >= 1.5) return "Good balance";
+            if (r >= 1) return "Modest reward relative to risk";
+            return "More risk than reward";
+        }
+        
+        /**
+         * Returns a descriptive text for an RSI value.
+         * @param {number} rsi The RSI value.
+         * @returns {string} The descriptive text.
+         */
+        function getRsiStatusText(rsi) {
+            if (rsi === null || typeof rsi === 'undefined') return '(N/A)';
+            if (rsi > 70) return '(Overbought)';
+            if (rsi < 30) return '(Oversold)';
+            if (rsi > 60) return '(Approaching Overbought)';
+            if (rsi < 40) return '(Approaching Oversold)';
+            return '(Neutral)';
+        }
+
+        /**
+         * Renders all options data into the appropriate tables based on multiple criteria.
+         * @param {Array<Object>} allOptionsData An array of all option objects from all tickers.
+         * @param {Object} allCurrentStockPrices An object mapping ticker to its current price.
+         * @param {Object} allRsiValues An object mapping ticker to its RSI value.
+         * @param {boolean} useAccordion Whether to use the accordion view for strategies.
+         */
+        function renderConsolidatedOptionsTables(allOptionsData, allCurrentStockPrices, allRsiValues, useAccordion) {
+            // Get all table body elements
+            const tableBodies = {
+                nearTermCalls: document.getElementById('nearTermCallsTableBody'),
+                nearTermPuts: document.getElementById('nearTermPutsTableBody'),
+                midTermCalls: document.getElementById('midTermCallsTableBody'),
+                midTermPuts: document.getElementById('midTermPutsTableBody'),
+                sixWeekPuts: document.getElementById('sixWeekPutsTableBody'),
+                eightWeekPuts: document.getElementById('eightWeekPutsTableBody'),
+                tenWeekPuts: document.getElementById('tenWeekPutsTableBody'),
+                calendarSummary: document.getElementById('calendarSummaryTableBody'),
+                calendarDetails: document.getElementById('calendarDetailsTableBody'),
+            };
+
+             const detailsContainers = {
+                midTermCondor: document.getElementById('midTermCondorDetailsContainer'),
+                sixWeekCondor: document.getElementById('sixWeekCondorDetailsContainer'),
+                eightWeekCondor: document.getElementById('eightWeekCondorDetailsContainer'),
+                tenWeekCondor: document.getElementById('tenWeekCondorDetailsContainer'),
+                midTermPterodactyl: document.getElementById('midTermPterodactylDetailsContainer'),
+                calendar: document.getElementById('calendarDetailsContainer'),
+            };
+
+            // Get all 'no data' message elements
+            const messages = {
+                nearTermCalls: document.getElementById('noNearTermCallsMessage'),
+                nearTermPuts: document.getElementById('noNearTermPutsMessage'),
+                midTermCalls: document.getElementById('noMidTermCallsMessage'),
+                midTermPuts: document.getElementById('noMidTermPutsMessage'),
+                sixWeekPuts: document.getElementById('noSixWeekPutsMessage'),
+                eightWeekPuts: document.getElementById('noEightWeekPutsMessage'),
+                tenWeekPuts: document.getElementById('noTenWeekPutsMessage'),
+                midTermCondor: document.getElementById('noMidTermCondorMessage'),
+                sixWeekCondor: document.getElementById('noSixWeekCondorMessage'),
+                eightWeekCondor: document.getElementById('noEightWeekCondorMessage'),
+                tenWeekCondor: document.getElementById('noTenWeekCondorMessage'),
+                midTermPterodactyl: document.getElementById('noMidTermPterodactylMessage'),
+                calendar: document.getElementById('noCalendarMessage'),
+            };
+
+            // Clear all tables and hide all messages/containers
+            Object.values(tableBodies).forEach(body => { if (body) body.innerHTML = ''; });
+            Object.values(messages).forEach(msg => msg.classList.add('hidden'));
+            Object.values(detailsContainers).forEach(container => container.innerHTML = '');
+
+
+            // Display current stock prices and RSI in an accordion
+            const pricesContainer = document.getElementById('currentPricesContainer');
+            pricesContainer.innerHTML = '';
+            if (Object.keys(allCurrentStockPrices).length > 0) {
+                const groupedByRsi = {
+                    'Overbought (RSI > 70)': [],
+                    'Approaching Overbought (60-70)': [],
+                    'Neutral (40-60)': [],
+                    'Approaching Oversold (30-40)': [],
+                    'Oversold (RSI < 30)': [],
+                    'N/A': []
+                };
+
+                Object.entries(allCurrentStockPrices).forEach(([ticker, price]) => {
+                    const rsi = allRsiValues[ticker];
+                    const stockData = { ticker, price, rsi };
+                    if (rsi === null || typeof rsi === 'undefined') {
+                        groupedByRsi['N/A'].push(stockData);
+                    } else if (rsi > 70) {
+                        groupedByRsi['Overbought (RSI > 70)'].push(stockData);
+                    } else if (rsi > 60) {
+                        groupedByRsi['Approaching Overbought (60-70)'].push(stockData);
+                    } else if (rsi > 40) {
+                        groupedByRsi['Neutral (40-60)'].push(stockData);
+                    } else if (rsi > 30) {
+                        groupedByRsi['Approaching Oversold (30-40)'].push(stockData);
+                    } else {
+                        groupedByRsi['Oversold (RSI < 30)'].push(stockData);
+                    }
+                });
+
+                Object.entries(groupedByRsi).forEach(([category, stocks]) => {
+                    if (stocks.length === 0) return;
+
+                    const accordionItem = document.createElement('div');
+                    accordionItem.className = 'border border-gray-200 rounded-md bg-white';
+
+                    const button = document.createElement('button');
+                    button.className = 'w-full text-left p-3 bg-gray-50 hover:bg-gray-200 font-semibold flex justify-between items-center transition';
+                    button.innerHTML = `<span>${category} (${stocks.length} stocks)</span>
+                                        <svg class="w-5 h-5 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>`;
+                    
+                    const panel = document.createElement('div');
+                    panel.className = 'accordion-panel p-3';
+                    
+                    const table = document.createElement('table');
+                    table.className = 'min-w-full';
+                    const tbody = table.createTBody();
+
+                    stocks.forEach(stock => {
+                        let rsiColorClass = 'text-gray-600';
+                        if (stock.rsi !== null) {
+                            if (stock.rsi >= 70) rsiColorClass = 'text-red-600';
+                            else if (stock.rsi <= 30) rsiColorClass = 'text-green-600';
+                        }
+
+                        const row = tbody.insertRow();
+                        row.innerHTML = `
+                            <td class="py-1 pr-4 text-sm font-bold text-indigo-700">${stock.ticker}</td>
+                            <td class="py-1 px-4 text-sm text-gray-800">$${stock.price !== null ? stock.price.toFixed(2) : 'N/A'}</td>
+                            <td class="py-1 pl-4 text-sm ${rsiColorClass}">${stock.rsi !== null ? stock.rsi.toFixed(2) : 'N/A'}</td>
+                        `;
+                    });
+
+                    panel.appendChild(table);
+                    
+                    button.addEventListener('click', () => {
+                        const isOpen = panel.classList.contains('open');
+                        if (!isOpen) {
+                            panel.classList.add('open');
+                            button.querySelector('svg').classList.add('rotate-180');
+                        } else {
+                            panel.classList.remove('open');
+                            button.querySelector('svg').classList.remove('rotate-180');
+                        }
+                    });
+
+                    accordionItem.appendChild(button);
+                    accordionItem.appendChild(panel);
+                    pricesContainer.appendChild(accordionItem);
+                });
+
+
+            } else {
+                pricesContainer.innerHTML = '<p class="text-gray-500">No current prices fetched yet.</p>';
+            }
+
+            // Define time ranges in days with wider windows
+            const ranges = {
+                nearTerm: { min: 1, max: 14 },
+                midTerm: { min: 28, max: 35 },
+                sixWeek: { min: 38, max: 48 },
+                eightWeek: { min: 52, max: 62 },
+                tenWeek: { min: 65, max: 75 }
+            };
+            
+            // --- Data Filtering and Processing ---
+            const bestNearMidTermOptions = new Map();
+            const bestSixWeekPuts = new Map();
+            const bestEightWeekPuts = new Map();
+            const bestTenWeekPuts = new Map();
+            const bestCondors = { midTerm: new Map(), sixWeek: new Map(), eightWeek: new Map(), tenWeek: new Map() };
+            const bestPterodactyls = { midTerm: new Map() };
+            const calendarCandidates = new Map();
+
+            allOptionsData.forEach(option => {
+                const daysLeft = calculateDaysLeft(option.expiration);
+                if (daysLeft === 'N/A' || daysLeft < 0) return;
+
+                const currentPrice = allCurrentStockPrices[option.symbol];
+                const strike = parseFloat(option.strike);
+                if (!currentPrice) return;
+                
+                const lastPrice = parseFloat(option.last || 0);
+                const bidPrice = parseFloat(option.bid || 0);
+                const priceForCalc = lastPrice > 0 ? lastPrice : bidPrice;
+                const usedBidForCalc = lastPrice <= 0;
+                option.priceForCalc = priceForCalc;
+
+                const lastVsCurrent = (currentPrice > 0 && priceForCalc > 0) ? ((priceForCalc / currentPrice) * 100).toFixed(2) : 'N/A';
+                const bidIndicator = usedBidForCalc ? ' (bid)' : '';
+                option.percentageDisplay = `${lastVsCurrent}${lastVsCurrent !== 'N/A' ? `% ($${priceForCalc.toFixed(2)} / $${currentPrice.toFixed(2)})${bidIndicator}` : ''}`;
+
+                // Calendar Spread Processing
+                const key = `${option.symbol}|${option.strike}`;
+                if (!calendarCandidates.has(key)) {
+                    calendarCandidates.set(key, { call: {near: null, far: null}, put: {near: null, far: null}, strike: strike });
+                }
+                const candidatePair = calendarCandidates.get(key);
+                const targetLeg = option.type === 'call' ? candidatePair.call : candidatePair.put;
+                if (daysLeft >= ranges.nearTerm.min && daysLeft <= ranges.nearTerm.max) {
+                    targetLeg.near = option;
+                } else if (daysLeft >= ranges.midTerm.min && daysLeft <= ranges.midTerm.max) {
+                    targetLeg.far = option;
+                }
+
+                // Strategy Leg Processing
+                let targetCondorMap = null;
+                let targetPterodactylMap = null;
+
+                if (daysLeft >= ranges.midTerm.min && daysLeft <= ranges.midTerm.max) {
+                    targetCondorMap = bestCondors.midTerm;
+                    targetPterodactylMap = bestPterodactyls.midTerm;
+                } else if (daysLeft >= ranges.sixWeek.min && daysLeft <= ranges.sixWeek.max) {
+                    targetCondorMap = bestCondors.sixWeek;
+                } else if (daysLeft >= ranges.eightWeek.min && daysLeft <= ranges.eightWeek.max) {
+                    targetCondorMap = bestCondors.eightWeek;
+                } else if (daysLeft >= ranges.tenWeek.min && daysLeft <= ranges.tenWeek.max) {
+                    targetCondorMap = bestCondors.tenWeek;
+                }
+                
+                // Iron Condor Legs
+                if (targetCondorMap) {
+                    const condorKey = `${option.symbol}|${option.expiration}`;
+                    const condorLegs = targetCondorMap.get(condorKey) || { shortPut: { diff: Infinity }, longPut: { diff: Infinity }, shortCall: { diff: Infinity }, longCall: { diff: Infinity } };
+                    if (option.type === 'put') {
+                        const shortPutDiff = Math.abs(strike - (currentPrice * 0.95));
+                        if (shortPutDiff < condorLegs.shortPut.diff) condorLegs.shortPut = { option, diff: shortPutDiff };
+                        const longPutDiff = Math.abs(strike - (currentPrice * 0.90));
+                        if (longPutDiff < condorLegs.longPut.diff) condorLegs.longPut = { option, diff: longPutDiff };
+                    } else { // call
+                        const shortCallDiff = Math.abs(strike - (currentPrice * 1.05));
+                        if (shortCallDiff < condorLegs.shortCall.diff) condorLegs.shortCall = { option, diff: shortCallDiff };
+                        const longCallDiff = Math.abs(strike - (currentPrice * 1.10));
+                        if (longCallDiff < condorLegs.longCall.diff) condorLegs.longCall = { option, diff: longCallDiff };
+                    }
+                    targetCondorMap.set(condorKey, condorLegs);
+                }
+
+                // Iron Pterodactyl Legs (Sell ATM, Buy 10% OTM)
+                if (targetPterodactylMap) {
+                    const pterodactylKey = `${option.symbol}|${option.expiration}`;
+                    const pterodactylLegs = targetPterodactylMap.get(pterodactylKey) || { shortPut: { diff: Infinity }, longPut: { diff: Infinity }, shortCall: { diff: Infinity }, longCall: { diff: Infinity } };
+                    if (option.type === 'put') {
+                        const shortPutDiff = Math.abs(strike - currentPrice); // ATM
+                        if (shortPutDiff < pterodactylLegs.shortPut.diff) pterodactylLegs.shortPut = { option, diff: shortPutDiff };
+                        const longPutDiff = Math.abs(strike - (currentPrice * 0.90)); // 10% OTM
+                        if (longPutDiff < pterodactylLegs.longPut.diff) pterodactylLegs.longPut = { option, diff: longPutDiff };
+                    } else { // call
+                        const shortCallDiff = Math.abs(strike - currentPrice); // ATM
+                        if (shortCallDiff < pterodactylLegs.shortCall.diff) pterodactylLegs.shortCall = { option, diff: shortCallDiff };
+                        const longCallDiff = Math.abs(strike - (currentPrice * 1.10)); // 10% OTM
+                        if (longCallDiff < pterodactylLegs.longCall.diff) pterodactylLegs.longCall = { option, diff: longCallDiff };
+                    }
+                    targetPterodactylMap.set(pterodactylKey, pterodactylLegs);
+                }
+
+                // Long Term Puts Processing
+                if (option.type === 'put') {
+                    const targetStrike = currentPrice * 0.90;
+                    const strikeDiff = Math.abs(strike - targetStrike);
+                    if (daysLeft >= ranges.sixWeek.min && daysLeft <= ranges.sixWeek.max) {
+                        const existingBest = bestSixWeekPuts.get(option.symbol);
+                        if (!existingBest || strikeDiff < existingBest.strikeDiff) bestSixWeekPuts.set(option.symbol, { ...option, strikeDiff });
+                    } else if (daysLeft >= ranges.eightWeek.min && daysLeft <= ranges.eightWeek.max) {
+                        const existingBest = bestEightWeekPuts.get(option.symbol);
+                        if (!existingBest || strikeDiff < existingBest.strikeDiff) bestEightWeekPuts.set(option.symbol, { ...option, strikeDiff });
+                    } else if (daysLeft >= ranges.tenWeek.min && daysLeft <= ranges.tenWeek.max) {
+                        const existingBest = bestTenWeekPuts.get(option.symbol);
+                        if (!existingBest || strikeDiff < existingBest.strikeDiff) bestTenWeekPuts.set(option.symbol, { ...option, strikeDiff });
+                    }
+                }
+
+                // Near/Mid Term Single Options
+                if ((daysLeft >= ranges.nearTerm.min && daysLeft <= ranges.nearTerm.max) || (daysLeft >= ranges.midTerm.min && daysLeft <= ranges.midTerm.max)) {
+                    const key = `${option.symbol}|${option.expiration}|${option.type}`;
+                    const existingBest = bestNearMidTermOptions.get(key);
+                    const strikeDiffToCurrent = Math.abs(strike - currentPrice);
+                    if (!existingBest || strikeDiffToCurrent < existingBest.strikeDiff) {
+                        bestNearMidTermOptions.set(key, { ...option, strikeDiff: strikeDiffToCurrent });
+                    }
+                }
+            });
+            
+            // --- Post-process for Calendar Spreads ---
+            const finalCalendarSpreads = new Map();
+            for(const ticker in allCurrentStockPrices) {
+                const currentPrice = allCurrentStockPrices[ticker];
+                let bestSpread = { diff: Infinity, spread: null };
+
+                calendarCandidates.forEach(candidate => {
+                    const symbol = candidate.call.near?.symbol || candidate.put.near?.symbol;
+                    if(symbol !== ticker) return;
+                    if (! (candidate.call.near && candidate.call.far) && ! (candidate.put.near && candidate.put.far) ) return;
+
+                    const strikeDiff = Math.abs(candidate.strike - currentPrice);
+                     if(strikeDiff < bestSpread.diff) {
+                         bestSpread = { diff: strikeDiff, spread: candidate };
+                     }
+                });
+                if (bestSpread.spread) {
+                    finalCalendarSpreads.set(ticker, bestSpread.spread);
+                }
+            }
+
+
+            const nearTermCalls = [], nearTermPuts = [], midTermCalls = [], midTermPuts = [];
+            for (const option of bestNearMidTermOptions.values()) {
+                const daysLeft = calculateDaysLeft(option.expiration);
+                 if (daysLeft >= ranges.nearTerm.min && daysLeft <= ranges.nearTerm.max) {
+                    if (option.type === 'call') nearTermCalls.push(option); else nearTermPuts.push(option);
+                } else if (daysLeft >= ranges.midTerm.min && daysLeft <= ranges.midTerm.max) {
+                     if (option.type === 'call') midTermCalls.push(option); else midTermPuts.push(option);
+                }
+            }
+
+            // --- Sorting and Rendering ---
+            const sortOptions = (a, b) => {
+                const daysLeftA = calculateDaysLeft(a.expiration);
+                const daysLeftB = calculateDaysLeft(b.expiration);
+                if (daysLeftA !== daysLeftB) return daysLeftA - daysLeftB;
+                return parsePercentageForSorting(a.percentageDisplay) - parsePercentageForSorting(b.percentageDisplay);
+            };
+            
+            const populateTable = (tableBody, options, noMessageElement) => {
+                if (options.length === 0) { noMessageElement.classList.remove('hidden'); return; }
+                options.sort(sortOptions).forEach(option => {
+                    const row = tableBody.insertRow();
+                    row.className = 'hover:bg-gray-100 transition duration-150 ease-in-out';
+                    row.innerHTML = `
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-900 font-bold">${option.symbol || 'N/A'}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">${option.expiration || 'N/A'}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">${calculateDaysLeft(option.expiration)}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">${parseFloat(option.strike || 0).toFixed(2)}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">${parseFloat(option.bid || 0).toFixed(2)}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">${parseFloat(option.ask || 0).toFixed(2)}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">${parseFloat(option.last || 0).toFixed(2)}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">${option.percentageDisplay}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">${parseInt(option.volume || 0).toLocaleString()}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">${parseInt(option.open_interest || 0).toLocaleString()}</td>`;
+                });
+            };
+
+            const populateStrategyTables = (containerId, detailsContainer, strategyMap, noMessageElement, legClassPrefix, useAccordion, rsiValues) => {
+                const container = document.getElementById(containerId);
+                container.innerHTML = ''; // Clear previous content
+                detailsContainer.innerHTML = '';
+                detailsContainer.classList.remove('visible');
+
+                const strategies = Array.from(strategyMap.values()).filter(c => c.shortPut.option && c.longPut.option && c.shortCall.option && c.longCall.option);
+                if (strategies.length === 0) { noMessageElement.classList.remove('hidden'); return; }
+
+                // Pre-calculate metrics for each strategy
+                strategies.forEach(strategy => {
+                    const netCredit = (strategy.shortPut.option.priceForCalc + strategy.shortCall.option.priceForCalc) - (strategy.longPut.option.priceForCalc + strategy.longCall.option.priceForCalc);
+                    const spreadWidth = Math.abs(parseFloat(strategy.shortPut.option.strike) - parseFloat(strategy.longPut.option.strike));
+                    const marginRequired = spreadWidth * 100;
+                    const maxLoss = marginRequired - (netCredit * 100);
+                    const riskRewardRatio = maxLoss > 0 ? ((netCredit * 100) / maxLoss) : Infinity;
+                    strategy.calculated = { netCredit, spreadWidth, marginRequired, maxLoss, riskRewardRatio };
+                });
+
+                if (useAccordion) {
+                    renderStrategyAccordion(container, detailsContainer, strategies, legClassPrefix, rsiValues);
+                } else {
+                    renderStrategyTable(container, detailsContainer, strategies, legClassPrefix, rsiValues);
+                }
+            };
+            
+            const createStrategySummaryTable = (strategies, legClassPrefix, detailsContainer, rsiValues) => {
+                const table = document.createElement('table');
+                table.className = 'min-w-full divide-y divide-gray-200';
+                table.innerHTML = `<thead class="bg-gray-50"><tr>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ticker</th>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Note</th>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">RSI</th>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expiration</th>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Days Left</th>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Max Reward</th>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Max Risk</th>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Margin Req.</th>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Risk/Reward</th>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Breakevens</th>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr></thead>`;
+                const tbody = table.createTBody();
+                tbody.className = 'bg-white divide-y divide-gray-200';
+
+                strategies.forEach((strategy, index) => {
+                    const { netCredit, maxLoss, marginRequired, riskRewardRatio } = strategy.calculated;
+                    const note = getNote(riskRewardRatio);
+                    const lowerBreakeven = parseFloat(strategy.shortPut.option.strike) - netCredit;
+                    const upperBreakeven = parseFloat(strategy.shortCall.option.strike) + netCredit;
+                    
+                    const ticker = strategy.shortPut.option.symbol;
+                    const rsi = rsiValues[ticker];
+                    const rsiStatus = getRsiStatusText(rsi);
+                    const rsiDisplay = rsi !== null ? `${rsi.toFixed(2)} ${rsiStatus}` : 'N/A';
+                    let rsiColorClass = 'text-gray-700';
+                    if (rsi !== null && typeof rsi !== 'undefined') {
+                        if (rsi >= 70) rsiColorClass = 'text-red-600';
+                        else if (rsi <= 30) rsiColorClass = 'text-green-600';
+                    }
+
+                    const row = tbody.insertRow();
+                    row.className = 'summary-row hover:bg-gray-200 transition';
+                    row.dataset.strategyJson = JSON.stringify(strategy); // Store data on the row
+
+                    row.innerHTML = `
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-900 font-bold">${ticker}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700 font-medium">${note}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm font-medium ${rsiColorClass}">${rsiDisplay}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">${strategy.shortPut.option.expiration}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">${calculateDaysLeft(strategy.shortPut.option.expiration)}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-green-700 font-semibold">$${(netCredit * 100).toFixed(2)}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-red-700 font-semibold">$${maxLoss.toFixed(2)}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700 font-semibold">$${marginRequired.toFixed(2)}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-indigo-700">${isFinite(riskRewardRatio) ? riskRewardRatio.toFixed(2) : '∞'}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">$${lowerBreakeven.toFixed(2)} & $${upperBreakeven.toFixed(2)}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm"><button class="show-calc-button text-indigo-600 hover:text-indigo-900">Show Calc</button></td>
+                    `;
+                });
+
+                tbody.addEventListener('click', (event) => {
+                    const target = event.target;
+                    const clickedRow = target.closest('tr.summary-row');
+                    if (!clickedRow) return;
+
+                    const selectedStrategy = JSON.parse(clickedRow.dataset.strategyJson);
+
+                    if (target.classList.contains('show-calc-button')) {
+                        showCalculationModal(selectedStrategy);
+                        return;
+                    }
+                    
+                    document.querySelectorAll('.summary-row').forEach(r => r.classList.remove('selected'));
+                    clickedRow.classList.add('selected');
+                    
+                    renderStrategyDetails(detailsContainer, selectedStrategy, legClassPrefix);
+                });
+
+                return table;
+            };
+
+            const renderStrategyDetails = (detailsContainer, strategy, legClassPrefix) => {
+                detailsContainer.innerHTML = ''; // Clear previous details
+                const detailsHeader = document.createElement('h5');
+                detailsHeader.className = 'text-sm font-semibold text-gray-600 mb-2';
+                detailsHeader.textContent = 'Details';
+                
+                const detailsTable = document.createElement('table');
+                detailsTable.className = 'min-w-full divide-y divide-gray-200';
+                detailsTable.innerHTML = `<thead class="bg-gray-50 sticky top-0"><tr>
+                    <th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Leg (Action)</th>
+                    <th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Strike</th>
+                    <th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bid</th>
+                    <th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ask</th>
+                    <th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last</th>
+                    <th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last %</th>
+                    <th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider rounded-tr-lg">Open Interest</th>
+                </tr></thead>`;
+                const detailsTbody = detailsTable.createTBody();
+                detailsTbody.className = 'bg-white divide-y divide-gray-200';
+
+                const legs = [
+                    { leg: 'Long Put (Buy)', option: strategy.longPut.option, class: `${legClassPrefix}-leg-buy` },
+                    { leg: 'Short Put (Sell)', option: strategy.shortPut.option, class: `${legClassPrefix}-leg-sell` },
+                    { leg: 'Short Call (Sell)', option: strategy.shortCall.option, class: `${legClassPrefix}-leg-sell` },
+                    { leg: 'Long Call (Buy)', option: strategy.longCall.option, class: `${legClassPrefix}-leg-buy` },
+                ];
+
+                legs.forEach(item => {
+                    const option = item.option;
+                    const row = detailsTbody.insertRow();
+                    row.className = `${item.class}`;
+                    row.innerHTML = `
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700 font-medium">${item.leg}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">${parseFloat(option.strike || 0).toFixed(2)}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">${parseFloat(option.bid || 0).toFixed(2)}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">${parseFloat(option.ask || 0).toFixed(2)}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">${parseFloat(option.last || 0).toFixed(2)}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">${option.percentageDisplay}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">${parseInt(option.open_interest || 0).toLocaleString()}</td>`;
+                });
+
+                const overflowWrapper = document.createElement('div');
+                overflowWrapper.className = 'overflow-x-auto';
+                overflowWrapper.appendChild(detailsTable);
+
+                detailsContainer.appendChild(detailsHeader);
+                detailsContainer.appendChild(overflowWrapper);
+                detailsContainer.classList.add('visible');
+            };
+
+            const renderStrategyTable = (container, detailsContainer, strategies, legClassPrefix, rsiValues) => {
+                strategies.sort((a, b) => b.calculated.riskRewardRatio - a.calculated.riskRewardRatio);
+                const table = createStrategySummaryTable(strategies, legClassPrefix, detailsContainer, rsiValues);
+                const overflowWrapper = document.createElement('div');
+                overflowWrapper.className = 'overflow-x-auto';
+                overflowWrapper.appendChild(table);
+                container.appendChild(overflowWrapper);
+            };
+
+            const renderStrategyAccordion = (container, detailsContainer, strategies, legClassPrefix, rsiValues) => {
+                const groupedByNote = strategies.reduce((acc, strategy) => {
+                    const note = getNote(strategy.calculated.riskRewardRatio);
+                    (acc[note] = acc[note] || []).push(strategy);
+                    return acc;
+                }, {});
+
+                const noteOrder = ["Extremely high reward for low risk", "Very strong setup", "High reward-to-risk ratio", "Good balance", "Modest reward relative to risk", "More risk than reward", "Zero risk / mispriced input"];
+                
+                noteOrder.forEach(note => {
+                    if (groupedByNote[note]) {
+                        const trades = groupedByNote[note];
+                        trades.sort((a, b) => b.calculated.riskRewardRatio - a.calculated.riskRewardRatio);
+
+                        const accordionItem = document.createElement('div');
+                        accordionItem.className = 'border border-gray-200 rounded-md mb-2 bg-white';
+
+                        const button = document.createElement('button');
+                        button.className = 'w-full text-left p-4 bg-gray-100 hover:bg-gray-200 font-semibold flex justify-between items-center transition';
+                        button.innerHTML = `<span>${note} (${trades.length} trades)</span>
+                                            <svg class="w-5 h-5 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>`;
+                        
+                        const panel = document.createElement('div');
+                        panel.className = 'accordion-panel p-4';
+                        
+                        const table = createStrategySummaryTable(trades, legClassPrefix, detailsContainer, rsiValues);
+                        const overflowWrapper = document.createElement('div');
+                        overflowWrapper.className = 'overflow-x-auto';
+                        overflowWrapper.appendChild(table);
+                        panel.appendChild(overflowWrapper);
+
+                        button.addEventListener('click', () => {
+                            const isOpen = panel.classList.contains('open');
+                            document.querySelectorAll('.accordion-panel.open').forEach(p => p.classList.remove('open'));
+                             document.querySelectorAll('.accordion-button svg').forEach(svg => svg.classList.remove('rotate-180'));
+                            if (!isOpen) {
+                                panel.classList.add('open');
+                                button.querySelector('svg').classList.add('rotate-180');
+                            }
+                        });
+
+                        accordionItem.appendChild(button);
+                        accordionItem.appendChild(panel);
+                        container.appendChild(accordionItem);
+                    }
+                });
+            };
+
+            const populateCombinedCalendarTables = (summaryTableBody, detailsTableBody, detailsContainer, calendarMap, noMessageElement) => {
+                const spreads = Array.from(calendarMap.values());
+                if (spreads.length === 0) {
+                    noMessageElement.classList.remove('hidden');
+                    return;
+                }
+                
+                spreads.forEach((spread, index) => {
+                    const callCost = spread.call.near ? spread.call.near.priceForCalc : 0;
+                    const callCredit = spread.call.far ? spread.call.far.priceForCalc : 0;
+                    const putCost = spread.put.near ? spread.put.near.priceForCalc : 0;
+                    const putCredit = spread.put.far ? spread.put.far.priceForCalc : 0;
+
+                    const netCall = callCredit - callCost;
+                    const netPut = putCredit - putCost;
+                    const overallNet = netCall + netPut;
+
+                    const summaryRow = summaryTableBody.insertRow();
+                    summaryRow.className = 'summary-row hover:bg-gray-200 transition';
+                    summaryRow.dataset.spreadIndex = index;
+                    summaryRow.innerHTML = `
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-900 font-bold">${spread.call.near?.symbol || spread.put.near?.symbol}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">${spread.strike}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-red-700">${callCost > 0 ? `(${(callCost * 100).toFixed(2)})` : '$0.00'}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-green-700">${callCredit > 0 ? `$${(callCredit * 100).toFixed(2)}` : '$0.00'}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-red-700">${putCost > 0 ? `(${(putCost * 100).toFixed(2)})` : '$0.00'}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-green-700">${putCredit > 0 ? `$${(putCredit * 100).toFixed(2)}` : '$0.00'}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm font-semibold ${netCall >= 0 ? 'text-green-700' : 'text-red-700'}">${netCall >=0 ? '$' : '-$'}${(Math.abs(netCall) * 100).toFixed(2)}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm font-semibold ${netPut >= 0 ? 'text-green-700' : 'text-red-700'}">${netPut >=0 ? '$' : '-$'}${(Math.abs(netPut) * 100).toFixed(2)}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm font-bold ${overallNet >= 0 ? 'text-green-700' : 'text-red-700'}">${overallNet >=0 ? '$' : '-$'}${(Math.abs(overallNet) * 100).toFixed(2)}</td>
+                    `;
+                });
+
+                 summaryTableBody.addEventListener('click', (event) => {
+                    const clickedRow = event.target.closest('tr');
+                    if (!clickedRow || !clickedRow.classList.contains('summary-row')) return;
+
+                    summaryTableBody.querySelectorAll('.summary-row').forEach(row => row.classList.remove('selected'));
+                    clickedRow.classList.add('selected');
+
+                    const spreadIndex = parseInt(clickedRow.dataset.spreadIndex, 10);
+                    const selectedSpread = spreads[spreadIndex];
+                    
+                    detailsContainer.innerHTML = '';
+                    renderStrategyDetails(detailsContainer, selectedSpread, 'calendar');
+                });
+            }
+
+            populateTable(tableBodies.nearTermCalls, nearTermCalls, messages.nearTermCalls);
+            populateTable(tableBodies.nearTermPuts, nearTermPuts, messages.nearTermPuts);
+            populateTable(tableBodies.midTermCalls, midTermCalls, messages.midTermCalls);
+            populateTable(tableBodies.midTermPuts, midTermPuts, messages.midTermPuts);
+            populateTable(tableBodies.sixWeekPuts, Array.from(bestSixWeekPuts.values()), messages.sixWeekPuts);
+            populateTable(tableBodies.eightWeekPuts, Array.from(bestEightWeekPuts.values()), messages.eightWeekPuts);
+            populateTable(tableBodies.tenWeekPuts, Array.from(bestTenWeekPuts.values()), messages.tenWeekPuts);
+            
+            populateStrategyTables('midTermCondorContainer', detailsContainers.midTermCondor, bestCondors.midTerm, messages.midTermCondor, 'condor', useAccordion, allRsiValues);
+            populateStrategyTables('sixWeekCondorContainer', detailsContainers.sixWeekCondor, bestCondors.sixWeek, messages.sixWeekCondor, 'condor', useAccordion, allRsiValues);
+            populateStrategyTables('eightWeekCondorContainer', detailsContainers.eightWeekCondor, bestCondors.eightWeek, messages.eightWeekCondor, 'condor', useAccordion, allRsiValues);
+            populateStrategyTables('tenWeekCondorContainer', detailsContainers.tenWeekCondor, bestCondors.tenWeek, messages.tenWeekCondor, 'condor', useAccordion, allRsiValues);
+            
+            populateStrategyTables('midTermPterodactylContainer', detailsContainers.midTermPterodactyl, bestPterodactyls.midTerm, messages.midTermPterodactyl, 'pterodactyl', useAccordion, allRsiValues);
+
+            populateCombinedCalendarTables(tableBodies.calendarSummary, detailsContainers.calendar, detailsContainers.calendar, finalCalendarSpreads, messages.calendar);
+        }
+
+        function showCalculationModal(strategy) {
+            const modal = document.getElementById('calculationModal');
+            const modalBody = document.getElementById('modalBody');
+
+            const { netCredit, maxLoss, marginRequired, riskRewardRatio } = strategy.calculated;
+
+            modalBody.innerHTML = `
+                <div class="p-2 bg-gray-100 rounded">
+                    <h3 class="text-lg font-semibold text-gray-700">Max Reward (Net Credit)</h3>
+                    <p class="text-sm text-gray-600">(Credit from Sells) - (Debit from Buys)</p>
+                    <p class="text-lg font-mono">($${strategy.shortPut.option.priceForCalc.toFixed(2)} + $${strategy.shortCall.option.priceForCalc.toFixed(2)}) - ($${strategy.longPut.option.priceForCalc.toFixed(2)} + $${strategy.longCall.option.priceForCalc.toFixed(2)}) = <span class="font-bold text-green-700">$${(netCredit * 100).toFixed(2)}</span></p>
+                </div>
+                <div class="p-2 bg-gray-100 rounded">
+                    <h3 class="text-lg font-semibold text-gray-700">Margin Required</h3>
+                    <p class="text-sm text-gray-600">The capital held by the broker, equal to the width of the spread.</p>
+                    <p class="text-lg font-mono">$${strategy.calculated.spreadWidth.toFixed(2)} * 100 = <span class="font-bold text-orange-700">$${marginRequired.toFixed(2)}</span></p>
+                    <p class="text-xs text-gray-500 mt-1">Spread Width = |Short Strike (${strategy.shortPut.option.strike}) - Long Strike (${strategy.longPut.option.strike})|</p>
+                </div>
+                <div class="p-2 bg-gray-100 rounded">
+                    <h3 class="text-lg font-semibold text-gray-700">Max Risk (Your Actual Risk)</h3>
+                    <p class="text-sm text-gray-600">(Margin Required) - (Max Reward)</p>
+                    <p class="text-lg font-mono">$${marginRequired.toFixed(2)} - $${(netCredit * 100).toFixed(2)} = <span class="font-bold text-red-700">$${maxLoss.toFixed(2)}</span></p>
+                </div>
+                 <div class="p-2 bg-gray-100 rounded">
+                    <h3 class="text-lg font-semibold text-gray-700">Risk/Reward Ratio</h3>
+                    <p class="text-sm text-gray-600">(Max Reward) / (Max Risk)</p>
+                    <p class="text-lg font-mono">$${(netCredit * 100).toFixed(2)} / $${maxLoss.toFixed(2)} = <span class="font-bold text-indigo-700">${isFinite(riskRewardRatio) ? riskRewardRatio.toFixed(2) : '∞'}</span></p>
+                    <p class="text-xs text-gray-500 mt-1">For every $1 of risk, the potential reward is $${isFinite(riskRewardRatio) ? riskRewardRatio.toFixed(2) : 'N/A'}.</p>
+                </div>
+            `;
+
+            // --- Chart Logic ---
+            if (profitLossChartInstance) {
+                profitLossChartInstance.destroy();
+            }
+
+            const k_lp = parseFloat(strategy.longPut.option.strike);
+            const k_sp = parseFloat(strategy.shortPut.option.strike);
+            const k_sc = parseFloat(strategy.shortCall.option.strike);
+            const k_lc = parseFloat(strategy.longCall.option.strike);
+            const nc = netCredit;
+
+            const priceLabels = [];
+            const profitData = [];
+            const range = (k_lc - k_lp) * 1.4;
+            const startPrice = k_lp - (range * 0.2);
+            const endPrice = k_lc + (range * 0.2);
+            const steps = 100;
+
+            for (let i = 0; i <= steps; i++) {
+                const S = startPrice + (i / steps) * (endPrice - startPrice);
+                priceLabels.push(S.toFixed(2));
+                let pl;
+                if (S <= k_lp) {
+                    pl = nc - (k_sp - k_lp);
+                } else if (S > k_lp && S < k_sp) {
+                    pl = nc - (k_sp - S);
+                } else if (S >= k_sp && S <= k_sc) {
+                    pl = nc;
+                } else if (S > k_sc && S < k_lc) {
+                    pl = nc - (S - k_sc);
+                } else { // S >= k_lc
+                    pl = nc - (k_lc - k_sc);
+                }
+                profitData.push(pl * 100);
+            }
+
+            const lowerBreakeven = k_sp - nc;
+            const upperBreakeven = k_sc + nc;
+
+            const ctx = document.getElementById('profitLossChart').getContext('2d');
+            profitLossChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: priceLabels,
+                    datasets: [{
+                        label: 'Profit/Loss at Expiration ($)',
+                        data: profitData,
+                        borderColor: 'rgb(79, 70, 229)',
+                        tension: 0.1,
+                        fill: {
+                            target: 'origin', // Fills to the y=0 line
+                            above: 'rgba(22, 163, 74, 0.2)',  // Green for profit
+                            below: 'rgba(220, 38, 38, 0.2)'   // Red for loss
+                        }
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Iron Condor Profit/Loss Diagram'
+                        },
+                        annotation: {
+                            annotations: {
+                                zeroLine: { type: 'line', yMin: 0, yMax: 0, borderColor: 'rgb(107, 114, 128)', borderWidth: 1, borderDash: [5, 5] },
+                                maxProfit: { type: 'line', yMin: nc * 100, yMax: nc * 100, borderColor: 'rgb(22, 163, 74)', borderWidth: 2, label: { content: `Max Profit: $${(nc*100).toFixed(2)}`, enabled: true, position: 'start' } },
+                                maxLoss: { type: 'line', yMin: (nc - (k_sp - k_lp)) * 100, yMax: (nc - (k_sp - k_lp)) * 100, borderColor: 'rgb(220, 38, 38)', borderWidth: 2, label: { content: `Max Loss: $${((nc - (k_sp - k_lp)) * 100).toFixed(2)}`, enabled: true, position: 'start' } },
+                                lowerBreakeven: { type: 'line', xMin: lowerBreakeven, xMax: lowerBreakeven, borderColor: 'rgb(249, 115, 22)', borderWidth: 2, borderDash: [10, 5], label: { content: `BE: ${lowerBreakeven.toFixed(2)}`, enabled: true, position: 'end' } },
+                                upperBreakeven: { type: 'line', xMin: upperBreakeven, xMax: upperBreakeven, borderColor: 'rgb(249, 115, 22)', borderWidth: 2, borderDash: [10, 5], label: { content: `BE: ${upperBreakeven.toFixed(2)}`, enabled: true, position: 'start' } }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { title: { display: true, text: 'Stock Price at Expiration ($)' } },
+                        y: { title: { display: true, text: 'Profit / Loss ($)' } }
+                    }
+                }
+            });
+
+            modal.style.display = 'flex';
+        }
+
+        async function fetchAndRenderAllStockData() {
+            const tickerInput = document.getElementById('tickerInput');
+            const statusMessage = document.getElementById('statusMessage');
+            const tickersInput = tickerInput.value.trim();
+            if (!tickersInput) {
+                statusMessage.textContent = "Please enter one or more ticker symbols.";
+                statusMessage.className = "text-center text-sm text-red-600 mt-2";
+                renderConsolidatedOptionsTables([], {}, {}, false);
+                return;
+            }
+
+            const tickers = tickersInput.split(',').map(t => t.trim().toUpperCase()).filter(t => t);
+            if (tickers.length === 0) {
+                statusMessage.textContent = "Please enter valid ticker symbols (e.g., IBM, AAPL).";
+                statusMessage.className = "text-center text-sm text-red-600 mt-2";
+                renderConsolidatedOptionsTables([], {}, {}, false);
+                return;
+            }
+            
+            const useAccordion = tickers.length > 5;
+
+            statusMessage.textContent = `Fetching data for ${tickers.join(', ')}...`;
+            statusMessage.className = "text-center text-sm text-blue-600 mt-2";
+            document.getElementById('currentPricesContainer').innerHTML = '<p class="text-gray-500">Fetching prices...</p>';
+
+            let allOptionsAggregated = [];
+            let allCurrentStockPrices = {};
+            let allRsiValues = {};
+            let allDataFetchedSuccessfully = true;
+
+            for (const ticker of tickers) {
+                const [currentPrice, optionsData, rsiData] = await Promise.all([
+                    getAlphaVantageCurrentPrice(ticker, ALPHA_VANTAGE_API_KEY),
+                    getAlphaVantageOptionChain(ticker, ALPHA_VANTAGE_API_KEY),
+                    getAlphaVantageRSI(ticker, ALPHA_VANTAGE_API_KEY)
+                ]);
+
+                allCurrentStockPrices[ticker] = currentPrice;
+                allRsiValues[ticker] = rsiData;
+
+                if (optionsData && optionsData.data) {
+                    const optionsWithSymbol = optionsData.data.map(opt => ({ ...opt, symbol: ticker }));
+                    allOptionsAggregated.push(...optionsWithSymbol);
+                } else {
+                    allDataFetchedSuccessfully = false;
+                    console.error(`Skipping options for ${ticker} due to fetch error or no data.`);
+                }
+            }
+            renderConsolidatedOptionsTables(allOptionsAggregated, allCurrentStockPrices, allRsiValues, useAccordion);
+
+            if (allDataFetchedSuccessfully) {
+                statusMessage.textContent = `Data fetched successfully for all tickers.`;
+                statusMessage.className = "text-center text-sm text-green-600 mt-2";
+            } else {
+                statusMessage.textContent = `Completed fetching. Some data may be missing. Check console for details.`;
+                statusMessage.className = "text-center text-sm text-orange-600 mt-2";
+            }
+        }
+
+        // --- Event Listeners ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const tabButtons = document.querySelectorAll('.tab-button');
+            const fetchDataButton = document.getElementById('fetchDataButton');
+            const tickerInput = document.getElementById('tickerInput');
+            const modal = document.getElementById('calculationModal');
+            const closeModalButton = document.getElementById('closeModalButton');
+
+            tabButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    const targetTab = button.dataset.tab;
+                    document.querySelectorAll('.tab-content').forEach(content => {
+                        content.classList.toggle('active', content.id === targetTab);
+                    });
+                    tabButtons.forEach(btn => btn.classList.remove('active'));
+                    button.classList.add('active');
+                });
+            });
+            
+            closeModalButton.addEventListener('click', () => {
+                modal.style.display = 'none';
+            });
+            
+            modal.addEventListener('click', (event) => {
+                if(event.target === modal) {
+                    modal.style.display = 'none';
+                }
+            });
+
+            fetchDataButton.addEventListener('click', fetchAndRenderAllStockData);
+            tickerInput.addEventListener('keypress', (event) => {
+                if (event.key === 'Enter') fetchDataButton.click();
+            });
+            fetchAndRenderAllStockData();
+        });
+    </script>
+</body>
+</html>
